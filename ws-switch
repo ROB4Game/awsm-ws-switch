@@ -1,41 +1,135 @@
-#!/usr/bin/env bash
-# Set the number of your first/main monitor, find it under `hyrpctl monitors` then find your monitor and it is the ID: value at the top.
-first=1 
-# Set the number of your secondary monitor
-second=0
-# Set the number of your third monitor
-# third=2
+#!/bin/bash
+#
+# Hyprland Monitor-Aware Workspace Switcher
+#
+# This script intelligently switches or moves windows to the correct global Hyprland
+# workspace ID based on the currently active monitor and a defined block size.
+#
+# It supports both absolute (e.g., '3') and relative (e.g., '+1', '-1') switching,
+# with wrapping enabled for smooth cycling within a monitor's workspace block.
 
-# Set the number of workspaces per screen
-ws_per_monitor=5
+# -----------------------------------------------------------------------------
+# CONFIGURATION
+# -----------------------------------------------------------------------------
+# Set the number of reserved workspaces per physical monitor.
+# Example: WORKSPACES_PER_MONITOR=5 means M1 gets 1-5, M2 gets 6-10, M3 gets 11-15, etc.
+WORKSPACES_PER_MONITOR=5
 
+# -----------------------------------------------------------------------------
+# INITIALIZATION AND VALIDATION
+# -----------------------------------------------------------------------------
 
-active_ws_info=$(hyprctl activeworkspace)
-current_ws=$(echo "$active_ws_info" | grep "id:" | awk '{print $2}')
-monitor=$(echo "$active_ws_info" | grep "monitorID:" | awk '{print $2}')
+# Check for required utility 'jq'
+if ! command -v jq &> /dev/null; then
+    echo "Error: 'jq' command not found. Please install 'jq'."
+    exit 1
+fi
 
-# Determine if first argument is relative (+/-) or absolute
-arg=$1
-if [[ $arg == +* ]] || [[ $arg == -* ]]; then
-    # Relative workspace switch
-    target_ws=$((current_ws + arg))
+# Validate input arguments
+if [ -z "$1" ]; then
+    echo "Usage: $0 <local_workspace|relative_change> [action]"
+    echo "  Examples:"
+    echo "    $0 3            # Switch to local workspace 3"
+    echo "    $0 +1 move      # Move window to next local workspace"
+    exit 1
+fi
+
+INPUT_WS=$1
+ACTION=${2:-"switch"} # Default action is 'switch'
+LOCAL_WS=""          # The final calculated local workspace (1 to N)
+
+# -----------------------------------------------------------------------------
+# MONITOR DETECTION AND INDEX CALCULATION
+# -----------------------------------------------------------------------------
+
+ACTIVE_MONITOR_NAME=$(hyprctl activeworkspace -j | jq -r '.monitor')
+
+if [ -z "$ACTIVE_MONITOR_NAME" ]; then
+    echo "Error: Could not retrieve active monitor name."
+    exit 1
+fi
+
+MONITORS_JSON=$(hyprctl monitors -j)
+TOTAL_MONITORS=$(echo "$MONITORS_JSON" | jq 'length')
+
+# Find the 0-based index of the active monitor in Hyprland's list
+MONITOR_INDEX=$(echo "$MONITORS_JSON" | jq -r --arg name "$ACTIVE_MONITOR_NAME" '[.[].name] | index($name)')
+
+if [ "$MONITOR_INDEX" == "null" ] || [ "$MONITOR_INDEX" -lt 0 ]; then
+    echo "Error: Active monitor '$ACTIVE_MONITOR_NAME' not found in monitor list."
+    exit 1
+fi
+
+# Dynamic index inversion to correct for monitor ordering issues (e.g., M1 being index 1)
+ADJUSTED_INDEX=$(( (TOTAL_MONITORS - 1) - MONITOR_INDEX ))
+
+# -----------------------------------------------------------------------------
+# WORKSPACE CALCULATION LOGIC
+# -----------------------------------------------------------------------------
+
+if [[ "$INPUT_WS" =~ ^[+-][0-9]+$ ]]; then
+    # --- RELATIVE SWITCH (+N or -N) ---
+
+    RELATIVE_CHANGE=$(echo "$INPUT_WS" | sed 's/+//')
+    CURRENT_GLOBAL_WS=$(hyprctl activeworkspace -j | jq -r '.id')
+    OFFSET=$((ADJUSTED_INDEX * WORKSPACES_PER_MONITOR))
+    CURRENT_LOCAL_WS=$((CURRENT_GLOBAL_WS - OFFSET))
+
+    # Handle cases where current workspace is outside the block (e.g., sticky or special)
+    if [ "$CURRENT_LOCAL_WS" -lt 1 ] || [ "$CURRENT_LOCAL_WS" -gt "$WORKSPACES_PER_MONITOR" ]; then
+        CURRENT_LOCAL_WS=1
+    fi
+
+    RAW_LOCAL_WS=$((CURRENT_LOCAL_WS + RELATIVE_CHANGE))
+
+    # Implement wrapping (cycle from last to first, or first to last)
+    # 1. Convert to 0-based index (e.g., 1 -> 0)
+    TEMP_0_BASED=$((RAW_LOCAL_WS - 1))
+
+    # 2. Apply positive modulo for wrapping
+    WRAPPED_0_BASED=$(( (TEMP_0_BASED % WORKSPACES_PER_MONITOR + WORKSPACES_PER_MONITOR) % WORKSPACES_PER_MONITOR ))
+
+    # 3. Convert back to 1-based index
+    LOCAL_WS=$((WRAPPED_0_BASED + 1))
+
+    echo "Relative Switch: Current Local WS: $CURRENT_LOCAL_WS -> New Local WS (Wrapped): $LOCAL_WS"
+
+elif [[ "$INPUT_WS" =~ ^[0-9]+$ ]]; then
+    # --- ABSOLUTE SWITCH (N) ---
+
+    LOCAL_WS=$INPUT_WS
+
+    # Absolute input validation
+    if [ "$LOCAL_WS" -lt 1 ] || [ "$LOCAL_WS" -gt "$WORKSPACES_PER_MONITOR" ]; then
+        echo "Error: Absolute local workspace must be between 1 and $WORKSPACES_PER_MONITOR."
+        exit 1
+    fi
+
 else
-    # Absolute workspace number
-    target_ws=$arg
+    echo "Error: Invalid input. Use absolute (1-$WORKSPACES_PER_MONITOR) or relative (+N / -N)."
+    exit 1
 fi
 
-# Adjust workspace number depending on monitor
-if [[ $monitor == *"$first"* ]]; then
-    true_target=$target_ws
-elif [[ $monitor == *"$second"* ]]; then
-    true_target=$((target_ws + ws_per_monitor))
-# elif [[ $monitor == *"$third"* ]]; then
-#     true_target=$((target_ws + ws_per_monitor*2))
+
+# -----------------------------------------------------------------------------
+# DISPATCH COMMAND
+# -----------------------------------------------------------------------------
+
+# Calculate the final global workspace ID
+# Formula: (AdjustedMonitorIndex * WorkspacesPerMonitor) + LocalWorkspace
+OFFSET=$((ADJUSTED_INDEX * WORKSPACES_PER_MONITOR))
+GLOBAL_TARGET_WS=$((OFFSET + LOCAL_WS))
+
+# Determine which Hyprland command to dispatch
+DISPATCH_COMMAND="workspace"
+if [ "$ACTION" == "move" ]; then
+    DISPATCH_COMMAND="movetoworkspace"
 fi
 
-# Execute the action: move or switch
-if [[ $2 == "move" ]]; then
-    hyprctl dispatch movetoworkspace $true_target
-else
-    hyprctl dispatch workspace $true_target
-fi
+# Print summary and execute
+echo "--- Dispatch Summary ---"
+echo "Monitor: $ACTIVE_MONITOR_NAME (Adjusted Index: $ADJUSTED_INDEX)"
+echo "Action: $DISPATCH_COMMAND, Global Target WS: $GLOBAL_TARGET_WS"
+echo "------------------------"
+
+hyprctl dispatch "$DISPATCH_COMMAND" "$GLOBAL_TARGET_WS"
