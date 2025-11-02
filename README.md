@@ -1,129 +1,146 @@
-awsm-ws-switch (Awesome Workspace Switcher)
 
-A powerful, single-script solution for monitor-aware workspace management in Hyprland.
+# ws-switch: Awesome Monitor-Aware Hyprland Workspace Switcher 🖥️
 
-This utility solves the multi-monitor headache by ensuring that your workspace bindings always target the correct workspace block (e.g., 1-5, 6-10, 11-15, etc.) on the currently active monitor.
+---
 
-✨ Features
+## 🚀 Overview
 
-Monitor Awareness: Automatically detects the active monitor and calculates the correct global workspace ID.
+`ws-switch` is a versatile BASH script designed for **Hyprland** users managing **multi-monitor setups**. Its primary goal is to decouple your workspace navigation from Hyprland's global workspace IDs (which can be confusing across monitors) by implementing a local workspace mapping system.
 
-Index Inversion: Handles common monitor ordering issues (where your primary display might not be Hyprland's index 0).
+The script **partitions** your total set of workspaces into contiguous blocks, assigning one block exclusively to each connected monitor. For example, if you set the configuration to 5 workspaces per monitor:
+* **Monitor 1** uses local workspaces 1-5 (Global IDs 1-5)
+* **Monitor 2** uses local workspaces 1-5 (Global IDs 6-10)
+* **Monitor 3** uses local workspaces 1-5 (Global IDs 11-15)
 
-Absolute Switching: Easily jump to a specific local workspace (e.g., always go to "workspace 3" on the current screen).
+This allows you to bind keys like `SUPER + 1` to always go to the *first* workspace on your **currently active monitor**, regardless of its global ID.
 
-Relative Switching & Wrapping: Move to the next (+1) or previous (-1) local workspace, with seamless wrapping from the last to the first (and vice-versa).
+---
 
-Window Management: Supports both switching the workspace and moving the active window to the target workspace.
+## ✨ Key Features
 
-⚙️ Prerequisites
+* **Monitor-Aware Dispatching:** Calculates the correct global workspace ID based on the active monitor's index.
+* **Local & Relative Input:** Accepts absolute local numbers (`3`) or relative changes (`+1`, `-2`).
+* **Boundary Wrapping:** Relative shifts wrap around the local block size (e.g., moving left from local 1 goes to local 5 if block size is 5).
+* **Dual Actions:** Supports both **switching** focus (`dispatch workspace`) and **moving** the active window (`dispatch movetoworkspace`).
+* **Dependencies:** Relies only on **`jq`** for JSON parsing of `hyprctl` output.
 
-Hyprland: The script is built specifically for the Hyprland compositor.
+---
 
-jq: A lightweight and flexible command-line JSON processor, required for parsing Hyprland's structured output.
+## ⚙️ Prerequisites
 
-Installation (Debian/Ubuntu): sudo apt install jq
+To ensure `ws-switch` functions correctly, you must have the following installed:
 
-Installation (Arch/Manjaro): sudo pacman -S jq
+1.  **Hyprland:** The compositor environment.
+2.  **`jq`:** The command-line JSON processor.
 
-🚀 Installation and Setup
+Installation example (Arch Linux):
+```bash
+sudo pacman -S jq
+````
 
-Save the Script: Save the contents of ws-switch into a file named ws-switch.
+-----
 
-Make it Executable:
+## 🛠️ Setup
 
-chmod +x ws-switch
+1.  **Save the Script:** Save the provided script content to a location in your `$PATH`, e.g., `/usr/local/bin/ws-switch`.
+2.  **Permissions:** Ensure it is executable:
+    ```bash
+    chmod +x /usr/local/bin/ws-switch
+    ```
 
+-----
 
-Move to PATH: Place the script in a directory included in your system's PATH (e.g., ~/.local/bin/):
+## 📝 Configuration
 
-mv ws-switch ~/.local/bin/
+The script behavior is controlled via a single variable at the top of the script file:
 
+### `WORKSPACES_PER_MONITOR`
 
-Configure Block Size: Open ws-switch and set the number of workspaces you want reserved per monitor (default is 5).
+This integer defines the size of the local workspace pool dedicated to *each* physical monitor.
 
-# ws-switch excerpt
-WORKSPACES_PER_MONITOR=5
+```bash
+# In the script file:
+WORKSPACES_PER_MONITOR=5 
+```
 
+**Adjust this value** within the script file to match the number of workspaces you want to use per monitor.
 
-💡 Usage and Hyprland Bindings
+> **Note on Monitor Ordering:** The script attempts to dynamically determine the physical monitor order using `hyprctl monitors -j` and inverts the index if necessary to better match common expectations (though Hyprland's own reporting can sometimes be non-deterministic).
 
-The script accepts two arguments: <local_workspace|relative_change> and [action].
+-----
 
-1. Absolute Switching (Super + 1-4)
+## 💡 Usage Syntax
 
-Switches to the specified local workspace (1 through 4, based on your WORKSPACES_PER_MONITOR setting).
+The script takes the desired target as the first argument, and an optional action as the second.
 
-Command
+$$\text{ws-switch} \langle \text{target} \rangle \ [ \text{action} ]$$
 
-Effect
+### Arguments
 
-ws-switch 1
+| Target Type | Example | Description |
+| :--- | :--- | :--- |
+| **Absolute Local WS** | `3` | Targets local workspace **3** on the current monitor. |
+| **Relative Shift** | `+1` | Shifts one local workspace **forward** (e.g., 3 $\to$ 4). |
+| **Relative Shift** | `-2` | Shifts two local workspaces **backward** (e.g., 4 $\to$ 2). |
 
-Go to local workspace 1 (Global 1, 6, 11, etc.)
+| Action Type | Example | Description |
+| :--- | :--- | :--- |
+| **`switch`** | `ws-switch 2` | **Switches** focus to the calculated workspace. (Default) |
+| **`move`** | `ws-switch 5 move` | **Moves** the active window to the calculated workspace. |
 
-ws-switch 4
+-----
 
-Go to local workspace 4 (Global 4, 9, 14, etc.)
+## 🖼️ Hyprland Keybinds (Recommended)
 
-Example hyprland.conf bindings:
+This is where `ws-switch` shines. You will replace your standard `workspace` and `movetoworkspace` binds in your `hyprland.conf` file with calls to this script.
 
-# $mainMod is usually Super (Windows/Cmd key)
-bind = $mainMod, 1, exec, ~/.local/bin/ws-switch 1
-bind = $mainMod, 2, exec, ~/.local/bin/ws-switch 2
-bind = $mainMod, 3, exec, ~/.local/bin/ws-switch 3
-bind = $mainMod, 4, exec, ~/.local/bin/ws-switch 4
+### ➡️ Absolute Switching and Moving
 
+These binds are set up for a `WORKSPACES_PER_MONITOR=5` configuration.
 
-2. Relative Switching and Wrapping (Super + Arrows)
+```conf
+# -----------------------------------------------------------------------------
+# Absolute Switching (SUPER + Number)
+# -----------------------------------------------------------------------------
+bind = SUPER, 1, exec, ws-switch 1
+bind = SUPER, 2, exec, ws-switch 2
+bind = SUPER, 3, exec, ws-switch 3
+bind = SUPER, 4, exec, ws-switch 4
+bind = SUPER, 5, exec, ws-switch 5
 
-Moves to the next (+1) or previous (-1) workspace. If you are on the last workspace, +1 wraps you back to the first.
+# -----------------------------------------------------------------------------
+# Absolute Moving (SUPER + SHIFT + Number)
+# -----------------------------------------------------------------------------
+bind = SUPER SHIFT, 1, exec, ws-switch 1 move
+bind = SUPER SHIFT, 2, exec, ws-switch 2 move
+bind = SUPER SHIFT, 3, exec, ws-switch 3 move
+bind = SUPER SHIFT, 4, exec, ws-switch 4 move
+bind = SUPER SHIFT, 5, exec, ws-switch 5 move
+```
 
-Command
+### 🔁 Relative Switching and Moving
 
-Effect
+These binds are essential for quick, continuous navigation with wrapping enabled.
 
-ws-switch +1
+```conf
+# -----------------------------------------------------------------------------
+# Relative Switching (SUPER + Arrow)
+# Cycles to the next or previous local workspace with wrapping (e.g., 5 -> 1 or 1 -> 5).
+# -----------------------------------------------------------------------------
+bind = SUPER, right, exec, ws-switch +1
+bind = SUPER, left, exec, ws-switch -1
 
-Go to the next local workspace (wraps)
+# -----------------------------------------------------------------------------
+# Relative Moving (SUPER + SHIFT + Arrow)
+# Moves the active window to the next or previous local workspace.
+# -----------------------------------------------------------------------------
+bind = SUPER SHIFT, right, exec, ws-switch +1 move
+bind = SUPER SHIFT, left, exec, ws-switch -1 move
+```
 
-ws-switch -1
+-----
 
-Go to the previous local workspace (wraps)
+```
 
-Example hyprland.conf bindings:
-
-bind = $mainMod, right, exec, ~/.local/bin/ws-switch +1
-bind = $mainMod, left, exec, ~/.local/bin/ws-switch -1
-
-
-3. Moving Windows (Super + Shift + 1-4 or Arrows)
-
-By adding the optional move argument, the active window is moved instead of the view.
-
-Command
-
-Effect
-
-ws-switch 3 move
-
-Move window to local workspace 3
-
-ws-switch +1 move
-
-Move window to the next local workspace (wraps)
-
-Example hyprland.conf bindings:
-
-# Absolute move bindings
-bind = $mainMod SHIFT, 1, exec, ~/.local/bin/ws-switch 1 move
-bind = $mainMod SHIFT, 2, exec, ~/.local/bin/ws-switch 2 move
-
-# Relative move bindings
-bind = $mainMod SHIFT, right, exec, ~/.local/bin/ws-switch +1 move
-bind = $mainMod SHIFT, left, exec, ~/.local/bin/ws-switch -1 move
-
-
-📜 License
-
-This project is licensed under the MIT License. See the top of the ws-switch file for the full license text.
+You can now use the content above to create your `README.md` file! Let me know if you need any further help with your Hyprland setup.
+```
