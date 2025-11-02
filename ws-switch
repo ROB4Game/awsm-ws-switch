@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Set the number of your first/main monitor, find it under `hyrpctl monitors` then find your monitor and it is the ID: value at the top.
+first=1 
+# Set the number of your secondary monitor
+second=0
+# Set the number of your third monitor
+# third=2
+
+# Set the number of workspaces per screen
+ws_per_monitor=5
+
+
+active_ws_info=$(hyprctl activeworkspace)
+current_ws=$(echo "$active_ws_info" | grep "id:" | awk '{print $2}')
+monitor=$(echo "$active_ws_info" | grep "monitorID:" | awk '{print $2}')
+
+# Determine if first argument is relative (+/-) or absolute
+arg=$1
+if [[ $arg == +* ]] || [[ $arg == -* ]]; then
+    # Relative workspace switch
+    target_ws=$((current_ws + arg))
+else
+    # Absolute workspace number
+    target_ws=$arg
+fi
+
+# Adjust workspace number depending on monitor
+if [[ $monitor == *"$first"* ]]; then
+    true_target=$target_ws
+elif [[ $monitor == *"$second"* ]]; then
+    true_target=$((target_ws + ws_per_monitor))
+# elif [[ $monitor == *"$third"* ]]; then
+#     true_target=$((target_ws + ws_per_monitor*2))
+fi
+
+# Execute the action: move or switch
+if [[ $2 == "move" ]]; then
+    hyprctl dispatch movetoworkspace $true_target
+else
+    hyprctl dispatch workspace $true_target
+fi
